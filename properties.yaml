@@ -1,0 +1,23 @@
+database:
+  sqlite-path: bucket_brigade.db
+  sqlite:
+    journal-mode: WAL
+    busy-timeout-ms: 5000
+    max-open-conns: 1
+    max-idle-conns: 1
+  migrations:
+    auto-run: true
+    path: db/migrations
+
+server:
+  port: 8080
+  max-upload-bytes: 5368709120
+  timeouts:
+    read: 30s
+    write: 60s
+    idle: 120s
+  validation:
+    object-route-param-max-length: 255
+
+storage:
+  base-path: ./data
