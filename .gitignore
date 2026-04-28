@@ -11,6 +11,11 @@
 # Test binary, built with `go test -c`
 *.test
 *.db
+*.db-shm
+*.db-wal
+
+# Built binary (root-level)
+bucket-brigade
 
 # Code coverage profiles and other test artifacts
 *.out
@@ -27,8 +32,11 @@ go.work.sum
 
 # env file
 .env
+bin/
+data/
 
 # Editor/IDE
 # .idea/
 # .vscode/
 .DS_Store
+.claude

@@ -1,0 +1,27 @@
+.git
+.claude
+.DS_Store
+.env
+
+# Pre-built binaries
+bin/
+bucket-brigade
+
+# Local database files
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# Test and dev artifacts
+bdd/
+*_test.go
+*.test
+*.out
+coverage.*
+
+# Docs and tooling
+README.md
+code_review.md
+postman_collection.json
+properties-test.yaml

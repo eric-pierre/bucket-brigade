@@ -1,3 +1,3 @@
-DROP TABLE IF EXISTS objects;
-DROP TABLE IF EXISTS object_contents;
-DROP TABLE IF EXISTS buckets;
+drop table if exists objects;
+drop table if exists object_contents;
+drop table if exists buckets;

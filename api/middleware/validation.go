@@ -40,9 +40,7 @@ func ValidateObjectParams(cfg *config.Config) gin.HandlerFunc {
 }
 
 func validateObjectRouteParam(name, value string, maxLength int) string {
-	if len(value) == 0 {
-		return newValidationError(name, "must not be empty")
-	}
+
 	if len(value) > maxLength {
 		return newValidationError(name, "must be at most "+strconv.Itoa(maxLength)+" characters")
 	}

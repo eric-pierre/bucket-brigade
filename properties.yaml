@@ -6,18 +6,24 @@ database:
     max-open-conns: 1
     max-idle-conns: 1
   migrations:
-    auto-run: true
     path: db/migrations
 
 server:
   port: 8080
+  log-level: info
   max-upload-bytes: 5368709120
   timeouts:
     read: 30s
     write: 60s
     idle: 120s
+    shutdown: 30s
   validation:
     object-route-param-max-length: 255
 
 storage:
   base-path: ./data
+
+observability:
+  tracing:
+    exporter: stdout      # stdout | otlp
+    endpoint: ""          # OTLP endpoint when exporter=otlp, e.g. http://localhost:4318

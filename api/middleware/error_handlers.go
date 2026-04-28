@@ -60,19 +60,19 @@ func NewRequestTooLargeError(detail, instance string, parameters map[string]stri
 	return newProblem(requestTooLargeProblemType, detail, instance, parameters)
 }
 
-func writeProblem(c *gin.Context, prob *problem.Problem) {
+func writeProblem(c *gin.Context, prob *problem.Problem, logger *logrus.Entry) {
 	if err := problem.DefaultGenerator.WriteProblemJSON(prob, c.Writer, c.Request, problem.WriteOptions{
 		ContentType: ProblemJSONContentType,
 		LogDisabled: true,
 	}); err != nil {
-		logrus.Errorf("failed to write RFC 9457 problem response: %v", err)
+		logger.WithError(err).Error("failed to write RFC 9457 problem response")
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
 	c.Abort()
 }
 
-func ErrorHandler() gin.HandlerFunc {
+func ErrorHandler(logger *logrus.Entry) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 
@@ -80,12 +80,12 @@ func ErrorHandler() gin.HandlerFunc {
 			err := c.Errors.Last()
 
 			if prob, ok := problem.As(err.Err); ok {
-				writeProblem(c, prob)
+				writeProblem(c, prob, logger)
 				return
 			}
 
-			logrus.Errorf("unhandled API error: %v", err.Err)
-			writeProblem(c, newProblem(internalProblemType, "internal server error", c.Request.URL.Path, nil))
+			logger.WithError(err.Err).Error("unhandled API error")
+			writeProblem(c, newProblem(internalProblemType, "internal server error", c.Request.URL.Path, nil), logger)
 		}
 	}
 }
