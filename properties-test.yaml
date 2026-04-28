@@ -6,16 +6,24 @@ database:
     max-open-conns: 1
     max-idle-conns: 1
   migrations:
-    auto-run: true
-    path: db/migrations
+    path: ../db/migrations
+
 server:
   port: 8081
+  log-level: warn
   max-upload-bytes: 1024
   timeouts:
     read: 30s
     write: 60s
     idle: 120s
+    shutdown: 30s
   validation:
     object-route-param-max-length: 255
+
 storage:
   base-path: ./test_data
+
+observability:
+  tracing:
+    exporter: stdout
+    endpoint: ""

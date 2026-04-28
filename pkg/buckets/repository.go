@@ -2,13 +2,14 @@ package buckets
 
 import (
 	"bucket-brigade/models"
+	"context"
 
 	"gorm.io/gorm"
 )
 
 type BucketRepository interface {
-	GetByName(name string) (*models.Bucket, error)
-	Create(bucket *models.Bucket) (*models.Bucket, error)
+	GetByName(ctx context.Context, name string) (*models.Bucket, error)
+	Create(ctx context.Context, bucket *models.Bucket) error
 	WithTx(tx *gorm.DB) BucketRepository
 }
 
@@ -24,18 +25,15 @@ func (r *bucketRepository) WithTx(tx *gorm.DB) BucketRepository {
 	return &bucketRepository{db: tx}
 }
 
-func (r *bucketRepository) GetByName(name string) (*models.Bucket, error) {
+func (r *bucketRepository) GetByName(ctx context.Context, name string) (*models.Bucket, error) {
 	var bucket models.Bucket
-	err := r.db.Where("name = ?", name).First(&bucket).Error
+	err := r.db.WithContext(ctx).Where("name = ?", name).First(&bucket).Error
 	if err != nil {
 		return nil, err
 	}
 	return &bucket, nil
 }
 
-func (r *bucketRepository) Create(bucket *models.Bucket) (*models.Bucket, error) {
-	if err := r.db.Create(bucket).Error; err != nil {
-		return nil, err
-	}
-	return bucket, nil
+func (r *bucketRepository) Create(ctx context.Context, bucket *models.Bucket) error {
+	return r.db.WithContext(ctx).Create(bucket).Error
 }

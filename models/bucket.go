@@ -2,7 +2,7 @@ package models
 
 type Bucket struct {
 	BaseModel
-	Id      uint     `gorm:"primaryKey"`
+	ID      uint     `gorm:"primaryKey"`
 	Name    string   `gorm:"uniqueIndex;not null"`
-	Objects []Object `gorm:"foreignKey:BucketId"`
+	Objects []Object `gorm:"foreignKey:BucketID"`
 }

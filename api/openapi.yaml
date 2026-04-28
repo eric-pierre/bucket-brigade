@@ -1,0 +1,142 @@
+openapi: "3.0.3"
+
+info:
+  title: Bucket Brigade
+  version: "1.0"
+  description: Self-hosted content-addressed object storage
+
+paths:
+  /objects/{bucket}/{objectId}:
+    parameters:
+      - name: bucket
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 255
+      - name: objectId
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 255
+
+    put:
+      operationId: uploadObject
+      summary: Upload or replace an object
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: Object created or replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObjectID"
+        "400":
+          description: Invalid request parameters
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "413":
+          description: Request body exceeds the configured size limit
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: Internal server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+    get:
+      operationId: downloadObject
+      summary: Download an object
+      responses:
+        "200":
+          description: Object content
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid request parameters
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: Object not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: Internal server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+    delete:
+      operationId: deleteObject
+      summary: Delete an object
+      responses:
+        "200":
+          description: Object deleted
+        "400":
+          description: Invalid request parameters
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: Object not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: Internal server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+components:
+  schemas:
+    ObjectID:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+
+    Problem:
+      description: RFC 9457 Problem Details
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        parameters:
+          type: object
+          additionalProperties:
+            type: string

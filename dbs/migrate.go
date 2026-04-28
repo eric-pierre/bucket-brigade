@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratesqlite "github.com/golang-migrate/migrate/v4/database/sqlite3"
@@ -54,23 +53,8 @@ func resolveMigrationsPath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(absPath); err == nil {
-		return absPath, nil
-	}
-
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", fmt.Errorf("resolve migrations path: runtime caller unavailable")
-	}
-
-	repoRelativePath := filepath.Join(filepath.Dir(filepath.Dir(currentFile)), path)
-	absRepoRelativePath, err := filepath.Abs(repoRelativePath)
-	if err != nil {
-		return "", err
-	}
-	if _, err := os.Stat(absRepoRelativePath); err != nil {
+	if _, err := os.Stat(absPath); err != nil {
 		return "", fmt.Errorf("resolve migrations path %q: %w", path, err)
 	}
-
-	return absRepoRelativePath, nil
+	return absPath, nil
 }

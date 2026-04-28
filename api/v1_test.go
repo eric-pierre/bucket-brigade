@@ -9,13 +9,16 @@ import (
 	"bucket-brigade/pkg/contents"
 	"bucket-brigade/pkg/objects"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
 )
@@ -34,23 +37,30 @@ func setupTestRouter(cfg *config.Config, db *gorm.DB) *RESTApiV1 {
 	contentRepo := contents.NewObjectContentRepository(db)
 	objectRepo := objects.NewObjectRepository(db)
 
-	bucketService := buckets.NewBucketService(bucketRepo)
-	contentService := contents.NewObjectContentService(contentRepo, cfg)
-	contentService.CleanupZeroRefContents()
-	objectService := objects.NewObjectService(objectRepo, cfg, bucketService, contentService)
+	logger := logrus.NewEntry(logrus.New())
 
-	return NewRESTApiV1(cfg, objectService)
+	bucketService := buckets.NewBucketService(bucketRepo, logger)
+	contentService, err := contents.NewObjectContentService(contentRepo, cfg, logger)
+	if err != nil {
+		panic(err)
+	}
+	contentService.CleanupZeroRefContents(context.Background())
+	objectService := objects.NewObjectService(objectRepo, cfg, bucketService, contentService, logger)
+
+	return NewRESTApiV1(cfg, objectService, noopHealthService{}, logger)
 }
 
-func TestAPI(t *testing.T) {
-	// Setup
+type noopHealthService struct{}
+
+func (noopHealthService) Ping() error { return nil }
+
+func setupTest(t *testing.T) (*RESTApiV1, *gorm.DB, *config.Config) {
+	t.Helper()
 	cfg, err := config.LoadConfig("properties-test")
 	if err != nil {
 		t.Fatalf("Failed to load test config: %v", err)
 	}
-	cfg.Database.SQLitePath = "test_brigade.db"
-	cfg.Storage.BasePath = "./test_data"
-	cfg.Server.MaxUploadBytes = 1024
+
 	db, err := dbs.InitDb(cfg)
 	if err != nil {
 		t.Fatalf("InitDb: %v", err)
@@ -59,14 +69,18 @@ func TestAPI(t *testing.T) {
 		t.Fatalf("Migrate: %v", err)
 	}
 
-	defer func() {
+	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		sqlDB.Close()
 		os.Remove(cfg.Database.SQLitePath)
 		os.RemoveAll(cfg.Storage.BasePath)
-	}()
+	})
 
-	restApi := setupTestRouter(cfg, db)
+	return setupTestRouter(cfg, db), db, cfg
+}
+
+func TestAPI(t *testing.T) {
+	restApi, _, _ := setupTest(t)
 	router := restApi.router
 
 	bucket := "testbucket"
@@ -188,30 +202,8 @@ func TestAPI(t *testing.T) {
 }
 
 func TestReferenceCounting(t *testing.T) {
-	// Setup
-	cfg, err := config.LoadConfig("properties-test")
-	if err != nil {
-		t.Fatalf("Failed to load test config: %v", err)
-	}
-	cfg.Database.SQLitePath = "test_brigade.db"
-	cfg.Storage.BasePath = "./test_data"
-	cfg.Server.MaxUploadBytes = 1024
-	db, err := dbs.InitDb(cfg)
-	if err != nil {
-		t.Fatalf("InitDb: %v", err)
-	}
-	if err := dbs.Migrate(cfg, db); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-
-	defer func() {
-		sqlDB, _ := db.DB()
-		sqlDB.Close()
-		os.Remove(cfg.Database.SQLitePath)
-		os.RemoveAll(cfg.Storage.BasePath)
-	}()
-
-	router := setupTestRouter(cfg, db).router
+	restApi, db, _ := setupTest(t)
+	router := restApi.router
 
 	bucket := "b1"
 	content1 := []byte("shared content")
@@ -226,11 +218,11 @@ func TestReferenceCounting(t *testing.T) {
 	// Verify both exist and share same content in DB
 	var objs []models.Object
 	db.Find(&objs)
-	assert.Equal(t, 2, len(objs))
-	assert.Equal(t, objs[0].ContentId, objs[1].ContentId)
+	assert.Len(t, objs, 2)
+	assert.Equal(t, objs[0].ContentID, objs[1].ContentID)
 
 	var contentRec models.ObjectContent
-	db.First(&contentRec, objs[0].ContentId)
+	db.First(&contentRec, objs[0].ContentID)
 	assert.Equal(t, int64(2), contentRec.RefCount)
 
 	// Update obj1 to new content
@@ -240,9 +232,9 @@ func TestReferenceCounting(t *testing.T) {
 	// Verify obj1 now has different content, and old content refcount decreased
 	var obj1 models.Object
 	db.Where("key = ?", "obj1").First(&obj1)
-	assert.NotEqual(t, objs[0].ContentId, obj1.ContentId)
+	assert.NotEqual(t, objs[0].ContentID, obj1.ContentID)
 
-	db.First(&contentRec, objs[0].ContentId)
+	db.First(&contentRec, objs[0].ContentID)
 	assert.Equal(t, int64(1), contentRec.RefCount)
 
 	// Delete obj2
@@ -251,10 +243,73 @@ func TestReferenceCounting(t *testing.T) {
 
 	// Verify old content is deleted from DB because refcount reached 0
 	var oldContent models.ObjectContent
-	err = db.First(&oldContent, objs[0].ContentId).Error
-	assert.Error(t, err) // Should be record not found
+	err := db.First(&oldContent, objs[0].ContentID).Error
+	assert.Error(t, err)
 
 	// Verify file is gone from disk
 	_, err = os.Stat(contentRec.Path)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestDownloadMissingFile(t *testing.T) {
+	restApi, db, _ := setupTest(t)
+	router := restApi.router
+
+	bucket := "testbucket"
+	objectId := "testobject"
+	req, _ := http.NewRequest("PUT", "/objects/"+bucket+"/"+objectId, bytes.NewBufferString("hello"))
+	router.ServeHTTP(httptest.NewRecorder(), req)
+
+	// Remove the backing file to simulate a post-crash inconsistency
+	var obj models.Object
+	db.Preload("Content").Where("key = ?", objectId).First(&obj)
+	os.Remove(obj.Content.Path)
+
+	req, _ = http.NewRequest("GET", "/objects/"+bucket+"/"+objectId, nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	assert.Equal(t, apimiddleware.ProblemJSONContentType, rr.Header().Get("Content-Type"))
+	var resp problemResponse
+	assert.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	assert.Equal(t, "https://bucket-brigade.dev/problems/internal-error", resp.Type)
+}
+
+func TestCleanupZeroRefContents(t *testing.T) {
+	_, db, cfg := setupTest(t)
+
+	// Simulate crash-orphaned state: a content row with ref_count=0 whose file
+	// was never removed because the process died between transaction commit and
+	// the post-commit file deletion.
+	contentsDir := filepath.Join(cfg.Storage.BasePath, "contents")
+	os.MkdirAll(contentsDir, 0755)
+	f, err := os.CreateTemp(contentsDir, "bb-content-*")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	f.WriteString("orphaned content")
+	f.Close()
+	orphanPath := f.Name()
+
+	bucket := models.Bucket{Name: "orphan-bucket"}
+	assert.NoError(t, db.Create(&bucket).Error)
+
+	orphan := models.ObjectContent{BucketID: bucket.ID, Sha256: "orphan-sha256", Size: 16, Path: orphanPath, RefCount: 0}
+	assert.NoError(t, db.Create(&orphan).Error)
+
+	contentRepo := contents.NewObjectContentRepository(db)
+	logger := logrus.NewEntry(logrus.New())
+	contentSvc, err := contents.NewObjectContentService(contentRepo, cfg, logger)
+	if err != nil {
+		t.Fatalf("failed to create content service: %v", err)
+	}
+	contentSvc.CleanupZeroRefContents(context.Background())
+
+	var loaded models.ObjectContent
+	err = db.Unscoped().First(&loaded, orphan.ID).Error
+	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+
+	_, err = os.Stat(orphanPath)
 	assert.True(t, os.IsNotExist(err))
 }
